@@ -1,0 +1,42 @@
+experiment:
+  name: ppo_extended_action
+  seed: 7
+paths:
+  data: src/data/data_price_uni_h_time.csv
+  model_dir: outputs/models
+data:
+  train_ratio: 0.7
+  validation_ratio: 0.15
+rolling_window:
+  train_size: 4000
+  validation_size: 1000
+  test_size: 1000
+  step_size: 1000
+env:
+  delta: 0.05
+  action_values: [0, 10, 20, 50, 100]
+  initial_x: 10.0
+  gas_fee: 5.0
+  min_liquidity: 1.0e-9
+features:
+  use_bayes_features: false
+  normalize_bayes_features: false
+model:
+  gating: false
+  gating_mode: sigmoid
+  gate_init_std: 0.0
+ppo:
+  learning_rate: 0.0003
+  n_steps: 1024
+  batch_size: 256
+  n_epochs: 10
+  gamma: 0.999
+  gae_lambda: 0.995
+  clip_range: 0.1
+  ent_coef: 0.001
+  vf_coef: 0.5
+  features_dim: 128
+  hidden_dim: 128
+  activation: tanh
+  net_arch: [64, 64]
+  total_timesteps: 100000
