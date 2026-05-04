@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 
 outputs/
+!outputs/
+outputs/*
+!outputs/diagnostics_neurips_revision/
+!outputs/diagnostics_neurips_revision/**
 publish/
 
 .DS_Store

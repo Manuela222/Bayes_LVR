@@ -19,12 +19,13 @@ env:
   gas_fee: 5.0
   min_liquidity: 1.0e-9
 features:
-  use_bayes_features: true
+  feature_source: bayes
   normalize_bayes_features: true
 model:
   gating: false
   gating_mode: sigmoid
   gate_init_std: 0.0
+  volatility_attention: false
 ppo:
   learning_rate: 0.0003
   n_steps: 1024

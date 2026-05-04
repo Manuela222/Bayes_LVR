@@ -11,13 +11,12 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 
-from src.bayesvol.cir import estimate_cir_params
-from src.bayesvol.features import BayesVolFeatureEngine
 from src.envs.uniswap_env import EnvConfig, UniswapV3BayesEnv
 from src.evaluation.metrics import compute_rollout_metrics, summarize_gate
 from src.models.feature_extractors import BayesGatedFeatureExtractor
 from src.utils.io import ensure_dir, write_json
-from src.utils.numeric import safe_corr, safe_log_return
+from src.utils.numeric import safe_corr
+from src.volatility.features import build_feature_engine, feature_indices, fit_feature_engine_spec, get_feature_source, uses_volatility_features
 
 
 class RewardTraceCallback(BaseCallback):
@@ -63,9 +62,9 @@ class TrainingDiagnosticsCallback(BaseCallback):
             self.loss_history[key].append(float(logger_values.get(f"train/{key}", np.nan)))
 
 
-def build_env(frame, config: dict, split_name: str, cir_params=None, bayes_feature_normalizer=None):
-    use_bayes = bool(config["features"]["use_bayes_features"])
-    bayes_engine = BayesVolFeatureEngine(cir_params) if use_bayes and cir_params is not None else None
+def build_env(frame, config: dict, split_name: str, feature_engine_spec=None, bayes_feature_normalizer=None):
+    use_bayes = uses_volatility_features(config)
+    bayes_engine = build_feature_engine(feature_engine_spec) if use_bayes else None
     env_cfg = EnvConfig(
         delta=config["env"]["delta"],
         action_values=config["env"]["action_values"],
@@ -79,15 +78,13 @@ def build_env(frame, config: dict, split_name: str, cir_params=None, bayes_featu
 
 
 def fit_cir_on_train(train_frame) -> object:
-    prices = train_frame["price"].astype(float).to_numpy()
-    returns = np.array([safe_log_return(prices[i], prices[i - 1]) for i in range(1, len(prices))], dtype=float)
-    return estimate_cir_params(returns, dt=1.0)
+    raise RuntimeError("fit_cir_on_train is deprecated; use fit_feature_engine_spec instead.")
 
 
-def estimate_bayes_feature_normalizer(train_frame, config: dict, cir_params) -> dict[str, dict[str, float]]:
+def estimate_bayes_feature_normalizer(train_frame, config: dict, feature_engine_spec) -> dict[str, dict[str, float]]:
     if not config["features"].get("normalize_bayes_features", False):
         return {}
-    probe_env = build_env(train_frame, config, "normalizer_probe", cir_params=cir_params, bayes_feature_normalizer=None)
+    probe_env = build_env(train_frame, config, "normalizer_probe", feature_engine_spec=feature_engine_spec, bayes_feature_normalizer=None)
     obs, _ = probe_env.reset()
     action_values = np.asarray(config["env"]["action_values"], dtype=int)
     preferred_width = 20 if 20 in action_values else action_values[min(len(action_values) - 1, 1)]
@@ -98,7 +95,11 @@ def estimate_bayes_feature_normalizer(train_frame, config: dict, cir_params) -> 
         obs, _, terminated, truncated, _ = probe_env.step(action_idx)
     frame = pd.DataFrame([item["bayes"] for item in probe_env.unwrapped.history])
     normalizer = {}
-    for name in BayesVolFeatureEngine.feature_names():
+    for name in probe_env.unwrapped.feature_names:
+        if name not in frame:
+            continue
+        if name in {"price", "tick", "width", "liquidity", "ew_sigma", "ma24", "ma168", "bb_upper", "bb_middle", "bb_lower", "adxr", "bop", "dx"}:
+            continue
         if name not in frame:
             continue
         series = frame[name].astype(float)
@@ -109,13 +110,14 @@ def estimate_bayes_feature_normalizer(train_frame, config: dict, cir_params) -> 
 
 def train_once(train_frame, validation_frame, test_frame, config: dict, run_dir: str | Path) -> tuple[PPO, TrainingArtifacts, dict]:
     run_dir = ensure_dir(run_dir)
-    cir_params = fit_cir_on_train(train_frame) if config["features"]["use_bayes_features"] else None
-    bayes_feature_normalizer = estimate_bayes_feature_normalizer(train_frame, config, cir_params) if cir_params is not None else {}
-    train_env = build_env(train_frame, config, "train", cir_params=cir_params, bayes_feature_normalizer=bayes_feature_normalizer)
-    validation_env = build_env(validation_frame, config, "validation", cir_params=cir_params, bayes_feature_normalizer=bayes_feature_normalizer)
-    test_env = build_env(test_frame, config, "test", cir_params=cir_params, bayes_feature_normalizer=bayes_feature_normalizer)
+    feature_engine_spec = fit_feature_engine_spec(train_frame, config)
+    bayes_feature_normalizer = estimate_bayes_feature_normalizer(train_frame, config, feature_engine_spec) if feature_engine_spec is not None else {}
+    train_env = build_env(train_frame, config, "train", feature_engine_spec=feature_engine_spec, bayes_feature_normalizer=bayes_feature_normalizer)
+    validation_env = build_env(validation_frame, config, "validation", feature_engine_spec=feature_engine_spec, bayes_feature_normalizer=bayes_feature_normalizer)
+    test_env = build_env(test_frame, config, "test", feature_engine_spec=feature_engine_spec, bayes_feature_normalizer=bayes_feature_normalizer)
 
     posterior_var_index = train_env.observation_space.shape[0] - 4
+    aux_indices = feature_indices(list(train_env.unwrapped.feature_names))
     policy_kwargs = dict(
         features_extractor_class=BayesGatedFeatureExtractor,
         features_extractor_kwargs=dict(
@@ -126,6 +128,8 @@ def train_once(train_frame, validation_frame, test_frame, config: dict, run_dir:
             posterior_var_index=posterior_var_index,
             gating_mode=config["model"].get("gating_mode", "sigmoid"),
             gate_init_std=config["model"].get("gate_init_std", 0.0),
+            attention=bool(config["model"].get("volatility_attention", False)),
+            aux_feature_indices=aux_indices,
         ),
         net_arch=dict(pi=config["ppo"]["net_arch"], vf=config["ppo"]["net_arch"]),
     )
@@ -165,10 +169,11 @@ def train_once(train_frame, validation_frame, test_frame, config: dict, run_dir:
         "train": compute_rollout_metrics(train_rollout["history"]),
         "validation": compute_rollout_metrics(validation_rollout["history"]),
         "test": compute_rollout_metrics(test_rollout["history"]),
-        "cir_params": cir_params.to_dict() if cir_params is not None else None,
+        "feature_engine": feature_engine_spec.to_dict() if feature_engine_spec is not None else None,
         "gating": gating_diagnostics,
         "bayes_feature_normalizer": bayes_feature_normalizer,
         "ppo_diagnostics": ppo_diagnostics,
+        "feature_source": get_feature_source(config),
     }
 
     model_path = str(run_dir / "model.zip")
@@ -213,9 +218,19 @@ def compute_gating_diagnostics(model: PPO, observations: np.ndarray) -> dict:
         return {}
     result = {
         "gating_enabled": bool(extractor.gating),
+        "attention_enabled": bool(getattr(extractor, "attention", False)),
         "gate_weight": float(extractor.gate_weight.detach().cpu().item()),
         "gate_bias": float(extractor.gate_bias.detach().cpu().item()),
     }
+    if getattr(extractor, "attention", False) and getattr(extractor, "attention_logits", None) is not None and observations.size > 0:
+        with torch.no_grad():
+            obs_tensor = torch.as_tensor(observations, device=model.device)
+            hidden = extractor.backbone(obs_tensor)
+            aux = obs_tensor[:, extractor.aux_feature_indices]
+            weights = torch.softmax(extractor.attention_logits(torch.cat([hidden, aux], dim=1)), dim=1).detach().cpu().numpy()
+        result["attention_weight_summary"] = {
+            f"feature_{idx}": summarize_gate(weights[:, pos]) for pos, idx in enumerate(extractor.aux_feature_indices)
+        }
     if not extractor.gating or observations.size == 0:
         return result
     with torch.no_grad():
@@ -265,6 +280,7 @@ def _save_rollout_plots(rollout_data: dict, run_dir: Path, split_name: str) -> N
     rewards = np.asarray([item["reward"] for item in history], dtype=float)
     observations = rollout_data["observations"]
     feature_names = rollout_data["feature_names"]
+    empirical_sigma = np.asarray([item.get("sigma_empirical", item["bayes"].get("empirical_vol_proxy", 0.0)) for item in history], dtype=float)
 
     plt.figure(figsize=(10, 4))
     plt.plot(steps, widths, lw=1)
@@ -289,6 +305,14 @@ def _save_rollout_plots(rollout_data: dict, run_dir: Path, split_name: str) -> N
     plt.ylabel("width")
     plt.tight_layout()
     plt.savefig(run_dir / f"{split_name}_width_vs_posterior_mean.png")
+    plt.close()
+
+    plt.figure(figsize=(5, 4))
+    plt.scatter(empirical_sigma, rewards, s=8, alpha=0.5)
+    plt.xlabel("empirical_sigma")
+    plt.ylabel("reward")
+    plt.tight_layout()
+    plt.savefig(run_dir / f"{split_name}_reward_vs_empirical_sigma.png")
     plt.close()
 
     bayes_feature_names = [name for name in ["posterior_vol_mean", "posterior_vol_var", "expected_lvr_next", "var_lvr_next", "ci90_lvr_width"] if name in history[0]["bayes"]]

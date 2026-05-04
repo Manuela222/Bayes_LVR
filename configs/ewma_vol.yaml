@@ -1,5 +1,5 @@
 experiment:
-  name: ppo_bayeslvr_gated
+  name: ppo_ewma_vol
   seed: 7
 paths:
   data: src/data/data_price_uni_h_time.csv
@@ -19,12 +19,13 @@ env:
   gas_fee: 5.0
   min_liquidity: 1.0e-9
 features:
-  feature_source: bayes
+  feature_source: ewma
+  ewma_alpha: 0.05
   normalize_bayes_features: true
 model:
-  gating: true
+  gating: false
   gating_mode: sigmoid
-  gate_init_std: 0.02
+  gate_init_std: 0.0
   volatility_attention: false
 ppo:
   learning_rate: 0.0003

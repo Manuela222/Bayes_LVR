@@ -27,7 +27,11 @@ def safe_log_return(current: float, previous: float, eps: float = EPS) -> float:
 
 
 def safe_corr(x: np.ndarray, y: np.ndarray) -> float:
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
     if len(x) < 2 or len(y) < 2:
+        return 0.0
+    if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
         return 0.0
     if float(np.std(x)) < EPS or float(np.std(y)) < EPS:
         return 0.0

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from gymnasium import spaces
 
-from src.bayesvol.features import BayesVolFeatureEngine
+from src.volatility.features import BaseFeatureEngine, feature_names
 from src.utils.numeric import EPS, ensure_finite_array, safe_log_return
 
 try:
@@ -34,7 +34,7 @@ class EnvConfig:
 class UniswapV3BayesEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, market_data: pd.DataFrame, env_config: EnvConfig, bayes_engine: BayesVolFeatureEngine | None = None):
+    def __init__(self, market_data: pd.DataFrame, env_config: EnvConfig, bayes_engine: BaseFeatureEngine | None = None):
         super().__init__()
         self.df = market_data.copy().reset_index(drop=True)
         self.raw_price_series = self.df["price"].astype(float).to_numpy()
@@ -67,7 +67,7 @@ class UniswapV3BayesEnv(gym.Env):
             "dx",
         ]
         if env_config.use_bayes_features:
-            self.feature_names.extend(BayesVolFeatureEngine.feature_names())
+            self.feature_names.extend(feature_names())
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(len(self.feature_names),), dtype=np.float32)
         self.reset()
 
@@ -245,7 +245,7 @@ class UniswapV3BayesEnv(gym.Env):
             liquidity=self.liquidity,
             portfolio_value=portfolio_value,
         )
-        bayes.update(dict(zip(BayesVolFeatureEngine.feature_names(), features.as_array().tolist())))
+        bayes.update(dict(zip(feature_names(), features.as_array().tolist())))
         return bayes
 
     @staticmethod
@@ -279,7 +279,7 @@ class UniswapV3BayesEnv(gym.Env):
             float(self.dx[idx]),
         ]
         if self.env_config.use_bayes_features:
-            for name in BayesVolFeatureEngine.feature_names():
+            for name in feature_names():
                 values.append(float(self._normalize_bayes_feature(name, bayes_features[name])))
         return ensure_finite_array(values)
 

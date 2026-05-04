@@ -1,0 +1,8 @@
+{
+  "cartea_baseline": "heuristic_proxy_only",
+  "correlations_all": "implemented",
+  "ekf_validation": "implemented",
+  "garch_heuristic": "implemented",
+  "paper_source_present": "no",
+  "redundancy_analysis": "implemented"
+}

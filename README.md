@@ -1,6 +1,6 @@
 # BayesLVR-PPO
 
-End-to-end project for FinAI Contest 2025 Task 3, built around a simplified Uniswap v3 liquidity provision environment with Bayesian latent-volatility features for PPO.
+End-to-end project for FinAI Contest 2025 Task 3, focused on a systematic study of whether volatility and LVR-uncertainty features are informative for Uniswap v3 liquidity-provision control under noisy DeFi rewards.
 
 ## Repository Layout
 
@@ -35,14 +35,18 @@ End-to-end project for FinAI Contest 2025 Task 3, built around a simplified Unis
   - `var_lvr_next`
   - `ci90_lvr_width`
 - The Bayesian LVR proxy follows the source-project structure: `LVR ≈ c_t * sigma_t^2`, with `c_t = liquidity * sqrt(price) / (4 * portfolio_value)`.
-- Optional gating applies `h_gated = h * sigmoid(w * posterior_vol_var + b)` inside the PPO feature extractor.
+- The repository now supports three uncertainty-feature sources: Bayesian EKF/CIR, EWMA volatility, and a lightweight GARCH-style variance forecast.
+- The main uncertainty-aware policy variant uses learned attention over the volatility features instead of relying on the earlier scalar gate alone.
 
 ## Supported Variants
 
 1. `configs/baseline.yaml`: PPO baseline.
 2. `configs/extended_action.yaml`: PPO with an extended action space.
-3. `configs/bayeslvr.yaml`: PPO with BayesVol features.
-4. `configs/bayeslvr_gated.yaml`: PPO with BayesVol features and gating.
+3. `configs/ewma_vol.yaml`: PPO with EWMA-driven volatility features.
+4. `configs/garch_vol.yaml`: PPO with GARCH-style volatility features.
+5. `configs/bayeslvr.yaml`: PPO with BayesVol features.
+6. `configs/bayeslvr_attention.yaml`: PPO with BayesVol features and learned attention.
+7. `configs/bayeslvr_gated.yaml`: legacy gated BayesVol variant kept for comparison.
 
 ## Installation
 
@@ -64,22 +68,22 @@ python scripts/quick_check.py
 Single training run:
 
 ```bash
-python scripts/train.py --config configs/bayeslvr_gated.yaml
+python scripts/train.py --config configs/bayeslvr_attention.yaml
 ```
 
 Rolling-window training:
 
 ```bash
-python scripts/train.py --config configs/bayeslvr_gated.yaml --rolling --max-windows 2
+python scripts/train.py --config configs/bayeslvr_attention.yaml --rolling --max-windows 2
 ```
 
 Model evaluation:
 
 ```bash
 python scripts/evaluate.py \
-  --config configs/bayeslvr_gated.yaml \
+  --config configs/bayeslvr_attention.yaml \
   --model outputs/models/<run_name>/model.zip \
-  --output outputs/metrics/bayeslvr_gated_eval.json
+  --output outputs/metrics/bayeslvr_attention_eval.json
 ```
 
 Ablations:
@@ -87,6 +91,7 @@ Ablations:
 ```bash
 python scripts/run_ablation.py
 python scripts/run_ablation.py --rolling --max-windows 2
+python scripts/run_robust_ablation.py
 ```
 
 ## Saved Artifacts
@@ -100,6 +105,7 @@ python scripts/run_ablation.py --rolling --max-windows 2
 Metrics include at least:
 
 - cumulative reward
+- median per-step reward
 - Sharpe ratio
 - total fees
 - total LVR
@@ -107,6 +113,10 @@ Metrics include at least:
 - fees / LVR
 - action distribution
 - correlation between LVR uncertainty and selected width
+- bootstrap confidence intervals for cumulative reward and Sharpe
+- high-volatility vs low-volatility regime performance
+- shuffled-feature and leave-one-feature-out evaluation diagnostics
+- EKF validation and feature redundancy diagnostics
 
 ## Documented Assumptions
 
@@ -115,3 +125,8 @@ Metrics include at least:
 - The environment is not rewritten from scratch; it is a compact implementation aligned with the original task logic.
 - CIR parameters are fitted on squared returns from the training window and then frozen for validation and test within that same window.
 - Gas costs remain fixed at 5 USD per rebalance.
+
+## Study Framing
+
+- The repository is structured to test whether volatility-uncertainty features are informative, not to assume they automatically improve PPO.
+- The added diagnostics are intended to show when uncertainty features correlate with behavior and performance, and when PPO still fails to exploit them robustly.

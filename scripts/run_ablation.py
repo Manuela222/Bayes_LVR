@@ -15,8 +15,10 @@ from src.utils.config import ROOT
 ABLATIONS = [
     "configs/baseline.yaml",
     "configs/extended_action.yaml",
+    "configs/ewma_vol.yaml",
+    "configs/garch_vol.yaml",
     "configs/bayeslvr.yaml",
-    "configs/bayeslvr_gated.yaml",
+    "configs/bayeslvr_attention.yaml",
 ]
 
 

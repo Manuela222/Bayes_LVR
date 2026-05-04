@@ -1,5 +1,5 @@
 experiment:
-  name: ppo_bayeslvr_gated
+  name: ppo_bayeslvr_attention
   seed: 7
 paths:
   data: src/data/data_price_uni_h_time.csv
@@ -22,10 +22,10 @@ features:
   feature_source: bayes
   normalize_bayes_features: true
 model:
-  gating: true
+  gating: false
   gating_mode: sigmoid
-  gate_init_std: 0.02
-  volatility_attention: false
+  gate_init_std: 0.0
+  volatility_attention: true
 ppo:
   learning_rate: 0.0003
   n_steps: 1024

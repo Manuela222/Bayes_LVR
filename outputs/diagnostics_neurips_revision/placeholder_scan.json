@@ -1,0 +1,14 @@
+[
+  {
+    "term":"correlations_all",
+    "path":"src\/evaluation\/metrics.py",
+    "line":121,
+    "text":"\"correlations_all\": corr_matrix.to_dict(),"
+  },
+  {
+    "term":"ekf validation",
+    "path":"README.md",
+    "line":119,
+    "text":"- EKF validation and feature redundancy diagnostics"
+  }
+]
